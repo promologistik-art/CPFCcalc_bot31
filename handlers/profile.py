@@ -15,7 +15,7 @@ router = Router()
 
 
 @router.message(Command("profile"))
-async def cmd_profile(message: types.Message, user_db):
+async def cmd_profile(message: types.Message, user_db, state: FSMContext):
     profile = user_db.get_profile(message.from_user.id)
     
     if profile:
@@ -43,7 +43,7 @@ async def cmd_profile(message: types.Message, user_db):
             "👋 Давайте познакомимся!\n\nКак вас зовут?",
             reply_markup=types.ReplyKeyboardRemove()
         )
-        await message.bot.state.set_state(ProfileState.waiting_for_name)
+        await state.set_state(ProfileState.waiting_for_name)
 
 
 @router.message(Command("profile_edit"))
@@ -53,8 +53,8 @@ async def cmd_profile_edit(message: types.Message, state: FSMContext):
 
 
 @router.callback_query(lambda c: c.data == "profile_view")
-async def profile_view_callback(callback: types.CallbackQuery, user_db):
-    await cmd_profile(callback.message, user_db)
+async def profile_view_callback(callback: types.CallbackQuery, user_db, state: FSMContext):
+    await cmd_profile(callback.message, user_db, state)
     await callback.answer()
 
 
