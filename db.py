@@ -589,15 +589,20 @@ class UserDB:
             LIMIT ?
         ''', (user_id, limit))
         rows = cursor.fetchall()
-        return [{
-            "product_name": row[0],
-            "protein": float(row[1] or 0),
-            "fat": float(row[2] or 0),
-            "carbohydrates": float(row[3] or 0),
-            "calories": float(row[4] or 0),
-            "weight_grams": float(row[5] or 0),
-            "meal_time": row[6]
-        } for row in rows]
+        
+        result = []
+        for row in rows:
+            result.append({
+                "product_name": row[0],
+                "protein": float(row[1] or 0),
+                "fat": float(row[2] or 0),
+                "carbohydrates": float(row[3] or 0),
+                "calories": float(row[4] or 0),
+                "weight_grams": float(row[5] or 0),
+                "meal_time": row[6]
+            })
+        
+        return result
     
     def clear_today(self, user_id: int):
         cursor = self.conn.cursor()
