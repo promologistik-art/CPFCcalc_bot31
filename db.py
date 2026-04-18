@@ -358,9 +358,9 @@ class UserDB:
         if row:
             return {
                 "name": row[0],
-                "weight": row[1],
-                "height": row[2],
-                "age": row[3],
+                "weight": float(row[1]) if row[1] else 0,
+                "height": float(row[2]) if row[2] else 0,
+                "age": int(row[3]) if row[3] else 0,
                 "activity_level": row[4],
                 "gender": row[5]
             }
@@ -374,18 +374,20 @@ class UserDB:
         ''', (
             user_id,
             data.get("name"),
-            data.get("weight"),
-            data.get("height"),
-            data.get("age"),
+            float(data.get("weight", 0)),
+            float(data.get("height", 0)),
+            int(data.get("age", 0)),
             data.get("activity_level"),
             data.get("gender")
         ))
         self.conn.commit()
     
     def calculate_bmr(self, profile: Dict) -> float:
-        weight = profile.get("weight", 70)
-        height = profile.get("height", 170)
-        age = profile.get("age", 30)
+        if not profile:
+            return 0
+        weight = float(profile.get("weight", 70))
+        height = float(profile.get("height", 170))
+        age = int(profile.get("age", 30))
         gender = profile.get("gender", "male")
         
         if gender == "male":
@@ -434,7 +436,7 @@ class UserDB:
                 days_left = max(days_left, (paid_until_date - today).days)
         
         return {
-            "is_active": is_active and days_left > 0,
+            "is_active": bool(is_active and days_left > 0),
             "is_forever": False,
             "trial_end": trial_end,
             "paid_until": paid_until,
@@ -516,33 +518,46 @@ class UserDB:
         cursor = self.conn.cursor()
         
         product_name = product.get("name", "Unknown")
-        protein = product.get("protein", 0)
-        fat = product.get("fat", 0)
-        carbs = product.get("carbs", 0)
-        calories = product.get("calories", 0)
-        weight_grams = product.get("weight_grams", 100)
+        protein = float(product.get("protein", 0))
+        fat = float(product.get("fat", 0))
+        carbs = float(product.get("carbs", 0))
+        calories = float(product.get("calories", 0))
+        weight_grams = float(product.get("weight_grams", 100))
         
+        # Добавляем запись в meals
         cursor.execute('''
             INSERT INTO meals (user_id, product_name, protein, fat, carbohydrates, calories, weight_grams)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (user_id, product_name, protein, fat, carbs, calories, weight_grams))
         
-        self.conn.commit()
-        
+        # Обновляем или создаём запись в daily_stats за сегодня
         today = date.today().isoformat()
+        
+        # Проверяем, есть ли уже запись за сегодня
         cursor.execute('''
-            INSERT INTO daily_stats (user_id, date, total_protein, total_fat, total_carbs, total_calories)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, date) DO UPDATE SET
-                total_protein = total_protein + ?,
-                total_fat = total_fat + ?,
-                total_carbs = total_carbs + ?,
-                total_calories = total_calories + ?
-        ''', (
-            user_id, today,
-            protein, fat, carbs, calories,
-            protein, fat, carbs, calories
-        ))
+            SELECT total_protein, total_fat, total_carbs, total_calories
+            FROM daily_stats
+            WHERE user_id = ? AND date = ?
+        ''', (user_id, today))
+        row = cursor.fetchone()
+        
+        if row:
+            # Обновляем существующую запись
+            cursor.execute('''
+                UPDATE daily_stats 
+                SET total_protein = total_protein + ?,
+                    total_fat = total_fat + ?,
+                    total_carbs = total_carbs + ?,
+                    total_calories = total_calories + ?
+                WHERE user_id = ? AND date = ?
+            ''', (protein, fat, carbs, calories, user_id, today))
+        else:
+            # Создаём новую запись
+            cursor.execute('''
+                INSERT INTO daily_stats (user_id, date, total_protein, total_fat, total_carbs, total_calories)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, today, protein, fat, carbs, calories))
+        
         self.conn.commit()
     
     def get_today_stats(self, user_id: int) -> dict:
@@ -554,8 +569,14 @@ class UserDB:
             WHERE user_id = ? AND date = ?
         ''', (user_id, today))
         row = cursor.fetchone()
+        
         if row:
-            return {"protein": row[0] or 0, "fat": row[1] or 0, "carbs": row[2] or 0, "calories": row[3] or 0}
+            return {
+                "protein": float(row[0] or 0), 
+                "fat": float(row[1] or 0), 
+                "carbs": float(row[2] or 0), 
+                "calories": float(row[3] or 0)
+            }
         return {"protein": 0, "fat": 0, "carbs": 0, "calories": 0}
     
     def get_recent_meals(self, user_id: int, limit: int = 10) -> List[dict]:
@@ -570,11 +591,11 @@ class UserDB:
         rows = cursor.fetchall()
         return [{
             "product_name": row[0],
-            "protein": row[1],
-            "fat": row[2],
-            "carbohydrates": row[3],
-            "calories": row[4],
-            "weight_grams": row[5],
+            "protein": float(row[1] or 0),
+            "fat": float(row[2] or 0),
+            "carbohydrates": float(row[3] or 0),
+            "calories": float(row[4] or 0),
+            "weight_grams": float(row[5] or 0),
             "meal_time": row[6]
         } for row in rows]
     
@@ -602,7 +623,7 @@ class UserDB:
             "created_at": r[3],
             "trial_end": r[4],
             "paid_until": r[5],
-            "is_forever": r[6]
+            "is_forever": bool(r[6]) if r[6] is not None else False
         } for r in rows]
     
     def get_all_users_detailed(self) -> List[Dict]:
@@ -641,9 +662,9 @@ class UserDB:
                 "created_at": r[3] or "",
                 "trial_end": r[4] or "",
                 "paid_until": r[5] or "",
-                "is_forever": r[6] or False,
+                "is_forever": bool(r[6]) if r[6] is not None else False,
                 "total_refs": r[7] or 0,
-                "total_commission": r[8] or 0,
+                "total_commission": float(r[8] or 0),
                 "days_left": days_left
             })
         
