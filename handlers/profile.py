@@ -133,14 +133,24 @@ async def process_height(message: types.Message, state: FSMContext):
             return
         
         await state.update_data(height=height)
-        await message.answer("🚻 Ваш пол?", reply_markup=get_gender_keyboard())
+        # ВАЖНО: отправляем клавиатуру и НЕ сбрасываем состояние
+        await message.answer(
+            "🚻 Ваш пол?",
+            reply_markup=get_gender_keyboard()
+        )
         await state.set_state(ProfileState.waiting_for_gender)
     except ValueError:
         await message.answer("❌ Пожалуйста, введите число (например: 175)")
 
 
-@router.callback_query(lambda c: c.data.startswith("gender_"), ProfileState.waiting_for_gender)
+@router.callback_query(lambda c: c.data.startswith("gender_"))
 async def process_gender(callback: types.CallbackQuery, state: FSMContext):
+    # Проверяем, что мы в правильном состоянии
+    current_state = await state.get_state()
+    if current_state != ProfileState.waiting_for_gender.state:
+        await callback.answer("❌ Сначала завершите текущий шаг")
+        return
+    
     gender = "male" if callback.data == "gender_male" else "female"
     await state.update_data(gender=gender)
     await callback.message.edit_text(
@@ -151,23 +161,43 @@ async def process_gender(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data == "back_to_gender", ProfileState.waiting_for_activity)
+@router.callback_query(lambda c: c.data == "back_to_gender")
 async def back_to_gender(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text("🚻 Ваш пол?", reply_markup=get_gender_keyboard())
     await state.set_state(ProfileState.waiting_for_gender)
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data.startswith("activity_"), ProfileState.waiting_for_activity)
+@router.callback_query(lambda c: c.data.startswith("activity_"))
 async def process_activity(callback: types.CallbackQuery, state: FSMContext, user_db):
+    # Проверяем, что мы в правильном состоянии
+    current_state = await state.get_state()
+    if current_state != ProfileState.waiting_for_activity.state:
+        await callback.answer("❌ Сначала завершите текущий шаг")
+        return
+    
     activity_level = callback.data.replace("activity_", "")
     await state.update_data(activity_level=activity_level)
     
     data = await state.get_data()
+    
+    # Проверяем, что все данные собраны
+    required_fields = ["name", "age", "weight", "height", "gender", "activity_level"]
+    for field in required_fields:
+        if field not in data:
+            await callback.message.edit_text(
+                f"❌ Ошибка: отсутствует поле {field}. Начните заново с /profile"
+            )
+            await state.clear()
+            await callback.answer()
+            return
+    
+    # Сохраняем профиль
     user_db.save_profile(callback.from_user.id, data)
     
     tdee = user_db.calculate_tdee(data)
     activity_name = ACTIVITY_LEVELS[activity_level]['name']
+    gender_text = "Мужской" if data['gender'] == "male" else "Женский"
     
     text = (
         f"✅ Профиль сохранён!\n\n"
@@ -175,6 +205,7 @@ async def process_activity(callback: types.CallbackQuery, state: FSMContext, use
         f"🎂 Возраст: {data['age']} лет\n"
         f"⚖️ Вес: {data['weight']} кг\n"
         f"📏 Рост: {data['height']} см\n"
+        f"🚻 Пол: {gender_text}\n"
         f"🏃 Активность: {activity_name}\n\n"
         f"⚡ Ваша суточная норма калорий: {tdee:.0f} ккал\n\n"
         f"Теперь статистика будет показывать процент от нормы!"
@@ -182,4 +213,4 @@ async def process_activity(callback: types.CallbackQuery, state: FSMContext, use
     
     await callback.message.edit_text(text, reply_markup=get_main_menu_keyboard())
     await state.clear()
-    await callback.answer()
+    await callback.answer(f"✅ Профиль сохранён! Норма: {tdee:.0f} ккал")
