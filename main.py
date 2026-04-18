@@ -50,12 +50,14 @@ async def main():
     bot.user_db = user_db
     bot.admin_id = ADMIN_ID
     
-    # Регистрируем роутеры
+    # ВАЖНО: Порядок регистрации роутеров!
+    # Сначала регистрируем роутеры с конкретными командами
     dp.include_router(common.router)
     dp.include_router(profile.router)
+    dp.include_router(admin.router)      # Админ-панель
+    dp.include_router(referral.router)   # Реферальные команды
+    # Обработчик еды должен быть ПОСЛЕДНИМ, так как он ловит все остальные сообщения
     dp.include_router(meals.router)
-    dp.include_router(admin.router)
-    dp.include_router(referral.router)
     
     # Устанавливаем команды
     await set_bot_commands(bot)
